@@ -120,6 +120,8 @@ class WhisperTranscriber:
             return
             
         self.is_recording = False
+        # Wait a moment for the recording thread to finish
+        time.sleep(0.1)
         print("\n✅ Recording stopped!")
         
         if not self.should_exit:
@@ -144,7 +146,12 @@ class WhisperTranscriber:
                 self.save_audio(audio_data, filename=audio_filename)
                 
                 print("\n🔄 Processing recording...")
+                processing_start = time.time()
+                
                 transcription = self.transcribe_with_dual_output(audio_filename)
+                
+                processing_time = time.time() - processing_start
+                print(f"\n⏱️ Processing time: {processing_time:.2f} seconds")
                 
                 # Display result
                 print("\n📝 Transcription:")
@@ -159,17 +166,27 @@ class WhisperTranscriber:
     def _record_audio(self):
         """Background recording function"""
         sample_rate = 16000
+        stream = None
         try:
-            # Create a new stream for each recording session
-            stream = sd.InputStream(samplerate=sample_rate, channels=1, dtype=np.float32)
-            stream.start()
+            # Initialize a new stream
+            stream = sd.InputStream(
+                samplerate=sample_rate,
+                channels=1,
+                dtype=np.float32,
+                blocksize=sample_rate  # Explicitly set blocksize
+            )
+            stream.start()  # Explicitly start the stream
+            
             while self.is_recording:
                 audio_chunk, _ = stream.read(sample_rate)
                 self.audio_chunks.append(audio_chunk)
-            stream.stop()
-            stream.close()
+                
         except Exception as e:
             print(f"Recording error: {str(e)}")
+        finally:
+            if stream is not None:
+                stream.stop()
+                stream.close()
 
     def save_audio(self, audio_data, filename=None, sample_rate=16000):
         """Save recorded audio"""
