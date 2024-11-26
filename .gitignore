@@ -62,5 +62,6 @@ log/
 .env.local
 .env.*.local
 
-# Generated transcriptions
+# Generated transcriptions and recordings
 transcriptions/ 
+recordings/

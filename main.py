@@ -50,6 +50,7 @@ class WhisperTranscriber:
         )
         
         self.output_dir = "transcriptions"
+        self.audio_dir = "recordings"
         self.is_recording = False
         self.audio_chunks = []
         self.should_exit = False
@@ -58,8 +59,10 @@ class WhisperTranscriber:
         self.TRIGGER_KEY = keyboard.Key.cmd  # Command key (⌘)
         self.current_keys = set()
         
-        if not os.path.exists(self.output_dir):
-            os.makedirs(self.output_dir)
+        # Create both directories
+        for directory in [self.output_dir, self.audio_dir]:
+            if not os.path.exists(directory):
+                os.makedirs(directory)
     
     def on_press(self, key):
         """Handle key press events"""
@@ -119,22 +122,29 @@ class WhisperTranscriber:
         self.is_recording = False
         print("\n✅ Recording stopped!")
         
-        if not self.should_exit:  # Only process if not exiting
+        if not self.should_exit:
             try:
                 if not self.audio_chunks:
                     print("\n⚠️ No audio recorded - recording may have been too short")
+                    print(f"Number of audio chunks: {len(self.audio_chunks)}")
                     return
                     
                 audio_data = np.concatenate(self.audio_chunks)
+                print(f"Audio length: {len(audio_data)} samples")
                 
-                if len(audio_data) < 1600:  # 16000 Hz * 0.1 seconds
+                if len(audio_data) < 1600:
                     print("\n⚠️ Recording too short - please record for longer")
                     return
-                    
-                self.save_audio(audio_data)
+                
+                # Generate unique filename for this recording
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                audio_filename = f"{self.audio_dir}/recording_{timestamp}.wav"
+                
+                # Save audio with unique filename
+                self.save_audio(audio_data, filename=audio_filename)
                 
                 print("\n🔄 Processing recording...")
-                transcription = self.transcribe_with_dual_output("recorded_audio.wav")
+                transcription = self.transcribe_with_dual_output(audio_filename)
                 
                 # Display result
                 print("\n📝 Transcription:")
@@ -150,16 +160,24 @@ class WhisperTranscriber:
         """Background recording function"""
         sample_rate = 16000
         try:
-            with sd.InputStream(samplerate=sample_rate, channels=1, dtype=np.float32) as stream:
-                while self.is_recording:
-                    audio_chunk, _ = stream.read(sample_rate)
-                    self.audio_chunks.append(audio_chunk)
+            # Create a new stream for each recording session
+            stream = sd.InputStream(samplerate=sample_rate, channels=1, dtype=np.float32)
+            stream.start()
+            while self.is_recording:
+                audio_chunk, _ = stream.read(sample_rate)
+                self.audio_chunks.append(audio_chunk)
+            stream.stop()
+            stream.close()
         except Exception as e:
             print(f"Recording error: {str(e)}")
 
-    def save_audio(self, audio_data, filename="recorded_audio.wav", sample_rate=16000):
+    def save_audio(self, audio_data, filename=None, sample_rate=16000):
         """Save recorded audio"""
+        if filename is None:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"{self.audio_dir}/recording_{timestamp}.wav"
         sf.write(filename, audio_data, sample_rate)
+        return filename
     
     def save_transcription(self, text):
         """Save transcription to a text file"""
