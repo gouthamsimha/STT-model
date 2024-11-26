@@ -11,6 +11,8 @@ from transformers import AutoProcessor, AutoModelForSpeechSeq2Seq
 import torch
 from transformers import pipeline
 import warnings
+import webrtcvad
+import struct
 
 # Suppress the specific FutureWarning about 'inputs' deprecation
 warnings.filterwarnings("ignore", message="The input name `inputs` is deprecated")
@@ -63,6 +65,12 @@ class WhisperTranscriber:
         for directory in [self.output_dir, self.audio_dir]:
             if not os.path.exists(directory):
                 os.makedirs(directory)
+        
+        # Add VAD initialization
+        self.vad = webrtcvad.Vad(3)  # Aggressiveness mode 3 (0-3)
+        self.silence_threshold = 10.0  # Changed from 0.5 to 10 seconds
+        self.silence_counter = 0
+        self.frame_duration = 30  # Duration of each frame in milliseconds
     
     def on_press(self, key):
         """Handle key press events"""
@@ -164,22 +172,46 @@ class WhisperTranscriber:
                 print(f"\n❌ Error during processing: {str(e)}")
 
     def _record_audio(self):
-        """Background recording function"""
+        """Background recording function with VAD"""
         sample_rate = 16000
+        frame_length = int(sample_rate * (self.frame_duration / 1000.0))
         stream = None
+        
         try:
-            # Initialize a new stream
             stream = sd.InputStream(
                 samplerate=sample_rate,
                 channels=1,
                 dtype=np.float32,
-                blocksize=sample_rate  # Explicitly set blocksize
+                blocksize=frame_length
             )
-            stream.start()  # Explicitly start the stream
+            stream.start()
+            
+            consecutive_silence = 0
             
             while self.is_recording:
-                audio_chunk, _ = stream.read(sample_rate)
-                self.audio_chunks.append(audio_chunk)
+                audio_chunk, _ = stream.read(frame_length)
+                
+                # Convert float32 to int16 for VAD
+                audio_int16 = (audio_chunk.flatten() * 32768).astype(np.int16)
+                frame_bytes = struct.pack("%dh" % len(audio_int16), *audio_int16)
+                
+                # Check if frame contains speech
+                is_speech = self.vad.is_speech(frame_bytes, sample_rate)
+                
+                if is_speech:
+                    consecutive_silence = 0
+                    self.audio_chunks.append(audio_chunk)
+                else:
+                    consecutive_silence += self.frame_duration / 1000.0
+                    
+                    # Still append audio during short silences
+                    self.audio_chunks.append(audio_chunk)
+                    
+                    # Stop recording after silence_threshold seconds of silence
+                    if consecutive_silence >= self.silence_threshold:
+                        print("\n🤫 Silence detected, stopping recording...")
+                        self.is_recording = False
+                        break
                 
         except Exception as e:
             print(f"Recording error: {str(e)}")
