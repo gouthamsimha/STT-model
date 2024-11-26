@@ -48,7 +48,16 @@ class WhisperTranscriber:
             feature_extractor=self.processor.feature_extractor,
             torch_dtype=torch_dtype,
             device=device,
-            generate_kwargs={"max_new_tokens": 128}
+            generate_kwargs={
+                "max_new_tokens": 256,
+                "temperature": 0.76,
+                "do_sample": True,
+                "top_k": 45,
+                "top_p": 0.85,
+                "repetition_penalty": 1.2,
+                "no_repeat_ngram_size": 2,
+                "num_beams": 2
+            }
         )
         
         self.output_dir = "transcriptions"
@@ -87,20 +96,35 @@ class WhisperTranscriber:
             return False  # Stop listener
 
     def transcribe_with_dual_output(self, audio_path):
-        """Generate transcription"""
+        """Generate transcription with optimized parameters"""
         try:
-            # Load the audio file first
             audio_input, sample_rate = sf.read(audio_path)
             
-            # Run the pipeline with the correct input format
+            # Calculate approximate duration in seconds
+            duration = len(audio_input) / sample_rate
+            # Adjust max_new_tokens based on audio duration (roughly 3 tokens per second of audio)
+            max_tokens = max(256, int(duration * 3))
+            
             result = self.pipe(
                 {
                     "raw": audio_input,
                     "sampling_rate": sample_rate
+                },
+                generate_kwargs={
+                    "max_new_tokens": max_tokens,
+                    "temperature": 0.75,
+                    "do_sample": True,
+                    "top_k": 50,
+                    "top_p": 0.92,
+                    "repetition_penalty": 1.3,
+                    "no_repeat_ngram_size": 2,
+                    "num_beams": 3,
+                    "return_timestamps": True
                 }
             )
             
-            return result["text"]
+            # Extract just the text if timestamps are returned
+            return result["text"] if isinstance(result, dict) else result
         except Exception as e:
             print(f"Transcription error: {str(e)}")
             return "Error during transcription"
@@ -248,7 +272,7 @@ def main():
             on_release=transcriber.on_release) as listener:
             listener.join()
     except KeyboardInterrupt:
-        print("\n👋 Program terminated by user")
+        print("\n Program terminated by user")
     finally:
         if transcriber.is_recording:
             transcriber.stop_recording()
