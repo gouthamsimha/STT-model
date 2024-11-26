@@ -1,0 +1,28 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+
+# Python files
+*.py text diff=python
+*.pyw text diff=python
+
+# Documents
+*.md text diff=markdown
+*.txt text
+*.rst text
+
+# Scripts
+*.sh text eol=lf
+*.bat text eol=crlf
+
+# Binary files (no line-ending conversion)
+*.db binary
+*.pkl binary
+*.pyc binary
+*.pyo binary
+*.pyd binary
+
+# Audio files
+*.wav binary
+*.mp3 binary
+*.aac binary
+*.m4a binary 
